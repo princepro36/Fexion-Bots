@@ -1,70 +1,129 @@
 from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, ContextTypes, filters
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+import random
 
 TOKEN = "8787323027:AAHfijqRVcgwf3v5i-kUgTwPzU0c3RakCtM"
 
 # ===== DATA =====
-user_points = {}
-user_names = {}
-user_prefix = {}
+xp = {}
+level = {}
+bad_words = ["fuck", "bc", "mc"]
+game_data = {}
 
 # ===== START =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
-    user_names[uid] = update.effective_user.first_name
-    user_points.setdefault(uid, 0)
-    user_prefix.setdefault(uid, "🤖")
+    xp.setdefault(uid, 0)
+    level.setdefault(uid, 1)
+    await update.message.reply_text("🔥 Combo Bot Active!\nUse /help")
 
-    await update.message.reply_text("🔥 Ranking Bot Active!\nUse /rank /top")
+# ===== HELP =====
+async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "/tagall - tag admins\n"
+        "/rank - your level\n"
+        "/top - leaderboard\n"
+        "/repeat 3 hi\n"
+        "/game - play game\n"
+    )
 
-# ===== MESSAGE TRACK =====
-async def track(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ===== TAG ALL =====
+async def tagall(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    admins = await context.bot.get_chat_administrators(chat.id)
+
+    msg = "📢 Attention:\n\n"
+    for user in admins:
+        msg += f"[{user.user.first_name}](tg://user?id={user.user.id}) "
+
+    await update.message.reply_text(msg, parse_mode="Markdown")
+
+# ===== REPEAT =====
+async def repeat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        count = int(context.args[0])
+        msg = " ".join(context.args[1:])
+        for _ in range(min(count, 5)):
+            await update.message.reply_text(msg)
+    except:
+        await update.message.reply_text("Use: /repeat 3 hello")
+
+# ===== GAME =====
+async def game(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    num = random.randint(1, 20)
+    game_data[update.effective_user.id] = num
+    await update.message.reply_text("🎮 Guess number (1-20)")
+
+async def guess(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
+    if uid not in game_data:
+        return
 
-    user_points[uid] = user_points.get(uid, 0) + 1
-    user_names[uid] = update.effective_user.first_name
+    try:
+        g = int(update.message.text)
+        real = game_data[uid]
+
+        if g == real:
+            await update.message.reply_text("🎉 Correct!")
+            del game_data[uid]
+        elif g > real:
+            await update.message.reply_text("📉 Too high")
+        else:
+            await update.message.reply_text("📈 Too low")
+    except:
+        pass
 
 # ===== RANK =====
 async def rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
-    points = user_points.get(uid, 0)
-    prefix = user_prefix.get(uid, "🤖")
-
-    await update.message.reply_text(f"{prefix} You have {points} points!")
+    await update.message.reply_text(f"XP: {xp.get(uid,0)} | Level: {level.get(uid,1)}")
 
 # ===== TOP =====
 async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    sorted_users = sorted(user_points.items(), key=lambda x: x[1], reverse=True)
-
+    sorted_users = sorted(xp.items(), key=lambda x: x[1], reverse=True)
     msg = "🏆 Top Users:\n"
     for i, (uid, pts) in enumerate(sorted_users[:5], start=1):
-        name = user_names.get(uid, "User")
-        msg += f"{i}. {name} - {pts}\n"
-
+        msg += f"{i}. {pts} XP\n"
     await update.message.reply_text(msg)
 
-# ===== CUSTOM PREFIX (CLONE FEEL) =====
-async def setprefix(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ===== CHAT + XP + FILTER =====
+async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.lower()
     uid = update.effective_user.id
 
-    if not context.args:
-        await update.message.reply_text("Use: /setprefix 😎")
-        return
+    # filter
+    for word in bad_words:
+        if word in text:
+            try:
+                await update.message.delete()
+            except:
+                pass
+            await update.message.reply_text("⚠️ Abuse not allowed!")
+            return
 
-    prefix = context.args[0]
-    user_prefix[uid] = prefix
+    # xp system
+    xp[uid] = xp.get(uid, 0) + 2
+    if xp[uid] >= level.get(uid, 1) * 50:
+        level[uid] = level.get(uid, 1) + 1
+        await update.message.reply_text(f"🎉 Level UP! {level[uid]}")
 
-    await update.message.reply_text(f"✅ Your bot prefix set to {prefix}")
+    # smart reply
+    replies = ["Nice 😎", "Cool 😄", "Okay 👍", "Haha 😂"]
+    await update.message.reply_text(random.choice(replies))
 
 # ===== APP =====
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("help", help_cmd))
+app.add_handler(CommandHandler("tagall", tagall))
+app.add_handler(CommandHandler("repeat", repeat))
+app.add_handler(CommandHandler("game", game))
 app.add_handler(CommandHandler("rank", rank))
 app.add_handler(CommandHandler("top", top))
-app.add_handler(CommandHandler("setprefix", setprefix))
 
-app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), track))
+app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), chat))
+app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), guess))
 
-print("Ranking Bot Started 🔥")
+print("Combo Bot Started 🔥")
 app.run_polling()
