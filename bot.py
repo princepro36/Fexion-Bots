@@ -1,59 +1,70 @@
-from pyrogram import Client, filters
-from pytgcalls import PyTgCalls
-from pytgcalls.types.input_stream import InputStream, InputAudioStream
-import yt_dlp
-import asyncio
+from telegram import Update
+from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, ContextTypes, filters
 
-# 🔑 DETAILS
-API_ID = 10324316
-API_HASH = "9dbde6e2365389984aa3dd6e3d24b3f6"
-BOT_TOKEN = "8787323027:AAHfijqRVcgwf3v5i-kUgTwPzU0c3RakCtM"
+TOKEN = "8787323027:AAHfijqRVcgwf3v5i-kUgTwPzU0c3RakCtM""
 
-# assistant session string (optional but needed)
-SESSION_STRING = "BQCdiVwAezxyHOA5jIKsucHS8D1XQlO5nMa0rF1C-4PKKW3qjF1JmgOI96jTpPpZwmUBQ7y4JpBtd2QSEPwmp04Omh9wAfvGfCJNWth_IMMPCDaUHHM7EHlmBUyqcwrEkIKmN-Mge9bkrEntpoSiWok0cytULOWGhB6F6rVjMR8IbPgB6UDHr09UHEQcwtYFNL4x5j44gcJ0AKto_F4GZ0_n67UhamLx5gTDqTgfOtMHibedoMA3M3joSelCGiDth0MHu-_OqaFt-7N-AwwEj3TDDqPSTa0_p6TIsqzEWEsaYziFcRQ3Icyke4Yy_jSuX5F3PxUx2T7hPqUT6m1FQhdKWl0v5wAAAAIF-3XVAA"
+# ===== DATA =====
+user_points = {}
+user_names = {}
+user_prefix = {}
 
-app = Client("bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
-assistant = Client("assistant", api_id=API_ID, api_hash=API_HASH, session_string=SESSION_STRING)
+# ===== START =====
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    user_names[uid] = update.effective_user.first_name
+    user_points.setdefault(uid, 0)
+    user_prefix.setdefault(uid, "🤖")
 
-call = PyTgCalls(assistant)
+    await update.message.reply_text("🔥 Ranking Bot Active!\nUse /rank /top")
 
-# 🎵 PLAY COMMAND
-@app.on_message(filters.command("play") & filters.group)
-async def play(_, message):
-    query = " ".join(message.command[1:])
+# ===== MESSAGE TRACK =====
+async def track(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
 
-    if not query:
-        await message.reply("Use: /play song name")
+    user_points[uid] = user_points.get(uid, 0) + 1
+    user_names[uid] = update.effective_user.first_name
+
+# ===== RANK =====
+async def rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    points = user_points.get(uid, 0)
+    prefix = user_prefix.get(uid, "🤖")
+
+    await update.message.reply_text(f"{prefix} You have {points} points!")
+
+# ===== TOP =====
+async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    sorted_users = sorted(user_points.items(), key=lambda x: x[1], reverse=True)
+
+    msg = "🏆 Top Users:\n"
+    for i, (uid, pts) in enumerate(sorted_users[:5], start=1):
+        name = user_names.get(uid, "User")
+        msg += f"{i}. {name} - {pts}\n"
+
+    await update.message.reply_text(msg)
+
+# ===== CUSTOM PREFIX (CLONE FEEL) =====
+async def setprefix(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+
+    if not context.args:
+        await update.message.reply_text("Use: /setprefix 😎")
         return
 
-    await message.reply("🔍 Searching...")
+    prefix = context.args[0]
+    user_prefix[uid] = prefix
 
-    ydl_opts = {"format": "bestaudio", "quiet": True}
+    await update.message.reply_text(f"✅ Your bot prefix set to {prefix}")
 
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"ytsearch:{query}", download=False)
-            url = info['entries'][0]['url']
-            title = info['entries'][0]['title']
+# ===== APP =====
+app = ApplicationBuilder().token(TOKEN).build()
 
-        await message.reply(f"🎶 Playing: {title}")
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("rank", rank))
+app.add_handler(CommandHandler("top", top))
+app.add_handler(CommandHandler("setprefix", setprefix))
 
-        await call.join_group_call(
-            message.chat.id,
-            InputStream(InputAudioStream(url)),
-        )
+app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), track))
 
-    except Exception as e:
-        await message.reply("❌ Error")
-
-# START
-async def main():
-    await app.start()
-    await assistant.start()
-    await call.start()
-    print("Bot Started 🔥")
-
-    await idle()
-
-from pyrogram.idle import idle
-asyncio.get_event_loop().run_until_complete(main())
+print("Ranking Bot Started 🔥")
+app.run_polling()
